@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>專業 PDF 轉檔工具</title>
+    <title>專業 PDF 轉檔工具 (真實版)</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & ReactDOM -->
@@ -14,6 +14,20 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     
+    <!-- PDF.js (用於讀取 PDF) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    
+    <!-- PptxGenJS (用於生成 PPT) -->
+    <script src="https://cdn.jsdelivr.net/gh/gitbrent/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+
+    <!-- Docx.js (用於生成 Word) -->
+    <script src="https://unpkg.com/docx@7.1.0/build/index.js"></script>
+    
+    <script>
+        // 設定 PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
         
@@ -48,14 +62,16 @@
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
-        const { FileText, Upload, CheckCircle, FileOutput, X, RefreshCw, FileType, ArrowRight, Download, AlertCircle } = lucide;
+        const { FileText, Upload, CheckCircle, FileOutput, X, RefreshCw, FileType, ArrowRight, Download, AlertCircle, Loader2 } = lucide;
 
         const App = () => {
             const [file, setFile] = useState(null);
             const [isDragging, setIsDragging] = useState(false);
-            const [targetFormat, setTargetFormat] = useState('docx'); // docx or pptx
+            const [targetFormat, setTargetFormat] = useState('pptx'); // 預設 PPT
             const [status, setStatus] = useState('idle'); // idle, converting, finished, error
             const [progress, setProgress] = useState(0);
+            const [progressText, setProgressText] = useState('');
+            const [convertedBlob, setConvertedBlob] = useState(null);
             const fileInputRef = useRef(null);
 
             // Handle Drag Events
@@ -89,7 +105,8 @@
                     return;
                 }
 
-                const maxSize = 50 * 1024 * 1024; // 50MB
+                // 限制 50MB
+                const maxSize = 50 * 1024 * 1024; 
                 if (file.size > maxSize) {
                     alert('檔案過大！請上傳小於 50MB 的 PDF 文件。');
                     return;
@@ -98,71 +115,134 @@
                 setFile(file);
                 setStatus('idle');
                 setProgress(0);
+                setConvertedBlob(null);
+                setProgressText('');
             };
 
-            const startConversion = () => {
+            // --- 真實轉換核心邏輯 ---
+            const startConversion = async () => {
+                if (!file) return;
+
                 setStatus('converting');
                 setProgress(0);
+                setProgressText('正在讀取 PDF...');
 
-                const interval = setInterval(() => {
-                    setProgress((prev) => {
-                        if (prev >= 100) {
-                            clearInterval(interval);
-                            setStatus('finished');
-                            return 100;
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+                    const totalPages = pdf.numPages;
+
+                    if (targetFormat === 'pptx') {
+                        // --- PDF 轉 PPTX (圖像化模式，保持排版) ---
+                        const pres = new PptxGenJS();
+                        pres.layout = 'LAYOUT_16x9'; 
+
+                        for (let i = 1; i <= totalPages; i++) {
+                            setProgressText(`正在處理第 ${i} / ${totalPages} 頁...`);
+                            setProgress(Math.round(((i - 1) / totalPages) * 100));
+
+                            const page = await pdf.getPage(i);
+                            
+                            // 設置較高的縮放比例以確保圖片清晰
+                            const scale = 2.0; 
+                            const viewport = page.getViewport({ scale });
+                            
+                            // 創建 Canvas 渲染 PDF
+                            const canvas = document.createElement('canvas');
+                            const context = canvas.getContext('2d');
+                            canvas.height = viewport.height;
+                            canvas.width = viewport.width;
+
+                            await page.render({
+                                canvasContext: context,
+                                viewport: viewport
+                            }).promise;
+
+                            // 將 Canvas 轉為圖片 Data URL
+                            const imgData = canvas.toDataURL('image/jpeg', 0.8);
+
+                            // 加入 PPT 投影片
+                            const slide = pres.addSlide();
+                            // 計算比例以適應 PPT
+                            slide.addImage({ 
+                                data: imgData, 
+                                x: 0, 
+                                y: 0, 
+                                w: '100%', 
+                                h: '100%',
+                                sizing: { type: 'contain', w: '100%', h: '100%' }
+                            });
                         }
-                        return prev + Math.floor(Math.random() * 15) + 5; 
-                    });
-                }, 400);
+
+                        setProgressText('正在生成 PPT 檔案...');
+                        const blob = await pres.write("blob");
+                        setConvertedBlob(blob);
+
+                    } else if (targetFormat === 'docx') {
+                        // --- PDF 轉 DOCX (文字提取模式) ---
+                        let fullText = "";
+                        const { Document, Packer, Paragraph, TextRun } = docx;
+                        const docChildren = [];
+
+                        for (let i = 1; i <= totalPages; i++) {
+                            setProgressText(`正在提取第 ${i} / ${totalPages} 頁文字...`);
+                            setProgress(Math.round(((i - 1) / totalPages) * 100));
+
+                            const page = await pdf.getPage(i);
+                            const textContent = await page.getTextContent();
+                            const pageText = textContent.items.map(item => item.str).join(' ');
+                            
+                            docChildren.push(
+                                new Paragraph({
+                                    children: [new TextRun({ text: `--- 第 ${i} 頁 ---`, bold: true, break: 1 })],
+                                })
+                            );
+                            docChildren.push(
+                                new Paragraph({
+                                    children: [new TextRun(pageText)],
+                                })
+                            );
+                            docChildren.push(new Paragraph({ text: "" })); // 空行
+                        }
+
+                        const doc = new Document({
+                            sections: [{
+                                properties: {},
+                                children: docChildren,
+                            }],
+                        });
+
+                        setProgressText('正在生成 Word 檔案...');
+                        const blob = await Packer.toBlob(doc);
+                        setConvertedBlob(blob);
+                    }
+
+                    setProgress(100);
+                    setStatus('finished');
+
+                } catch (error) {
+                    console.error(error);
+                    alert("轉換發生錯誤：" + error.message);
+                    setStatus('idle');
+                }
             };
 
             const reset = () => {
                 setFile(null);
                 setStatus('idle');
                 setProgress(0);
+                setConvertedBlob(null);
                 if(fileInputRef.current) fileInputRef.current.value = '';
             };
 
-            // FIXED DOWNLOAD FUNCTION
             const handleDownload = () => {
-                alert("【系統提示】由於這是純前端模擬演示，系統將下載「文字說明檔 (.txt)」來模擬結果，以確保您能順利開啟閱讀內容。真實環境中將會下載真正的 Word 或 PPT 檔案。");
+                if (!convertedBlob) return;
 
-                const textContent = `
-================================================================
-                    PDF 轉換結果模擬報告
-================================================================
-
-檔案名稱: ${file.name}
-目標格式: ${targetFormat === 'docx' ? 'Microsoft Word (.docx)' : 'PowerPoint (.pptx)'}
-檔案大小: ${(file.size / 1024 / 1024).toFixed(2)} MB
-轉換時間: ${new Date().toLocaleString()}
-
-----------------------------------------------------------------
-【轉換內容模擬】
-
-這是一個由前端模擬生成的檔案。
-
-在真實的應用程式中，後端伺服器 (Python/Node.js) 會執行以下步驟：
-1. 使用 OCR 技術辨識 PDF 中的文字與圖片。
-2. 重建排版結構 (Layout Analysis)。
-3. 將內容寫入真實的 .docx 或 .pptx 二進位檔案格式。
-
-由於目前此網頁僅在瀏覽器端運行 (Client-side only)，
-因此無法生成真實的 Office 格式檔案，特此提供此說明文件。
-
-感謝您的試用！
-================================================================
-`;
-                
-                const blob = new Blob([textContent], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
+                const url = URL.createObjectURL(convertedBlob);
                 const a = document.createElement('a');
                 a.href = url;
-                
-                // Change extension to .txt to ensure it opens correctly
-                const safeName = file.name.split('.')[0];
-                a.download = `[模擬轉換結果]_${safeName}_${targetFormat}.txt`; 
-                
+                const extension = targetFormat;
+                a.download = `${file.name.replace('.pdf', '')}_converted.${extension}`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -183,8 +263,8 @@
                                 <i data-lucide="file-type" className="text-white w-8 h-8"></i>
                             </div>
                         </div>
-                        <h1 className="text-3xl font-bold text-gray-800 mb-2">雲端 PDF 轉檔神器</h1>
-                        <p className="text-gray-500">快速將您的 PDF 文件轉換為可編輯的 Word 或 PowerPoint</p>
+                        <h1 className="text-3xl font-bold text-gray-800 mb-2">雲端 PDF 轉檔神器 (真實版)</h1>
+                        <p className="text-gray-500">真正的瀏覽器端運算：PDF 轉 PPT (圖片模式) 或 Word (文字模式)</p>
                     </header>
 
                     {/* Main Card */}
@@ -230,9 +310,11 @@
                                             <p className="text-xs text-gray-400">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                                         </div>
                                     </div>
-                                    <button onClick={reset} className="p-2 hover:bg-gray-200 rounded-full text-gray-400 transition">
-                                        <i data-lucide="x" className="w-5 h-5"></i>
-                                    </button>
+                                    {status === 'idle' && (
+                                        <button onClick={reset} className="p-2 hover:bg-gray-200 rounded-full text-gray-400 transition">
+                                            <i data-lucide="x" className="w-5 h-5"></i>
+                                        </button>
+                                    )}
                                 </div>
 
                                 {/* Options */}
@@ -243,17 +325,23 @@
                                             <div className="grid grid-cols-2 gap-4">
                                                 <button 
                                                     onClick={() => setTargetFormat('docx')}
-                                                    className={`flex items-center justify-center space-x-2 p-4 rounded-xl border-2 transition-all ${targetFormat === 'docx' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-gray-300 text-gray-600'}`}
+                                                    className={`flex flex-col items-center justify-center space-y-1 p-4 rounded-xl border-2 transition-all ${targetFormat === 'docx' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-gray-300 text-gray-600'}`}
                                                 >
-                                                    <i data-lucide="file-text" className="w-5 h-5"></i>
-                                                    <span className="font-medium">Word (.docx)</span>
+                                                    <div className="flex items-center space-x-2">
+                                                        <i data-lucide="file-text" className="w-5 h-5"></i>
+                                                        <span className="font-medium">Word</span>
+                                                    </div>
+                                                    <span className="text-xs opacity-70">(僅文字提取)</span>
                                                 </button>
                                                 <button 
                                                     onClick={() => setTargetFormat('pptx')}
-                                                    className={`flex items-center justify-center space-x-2 p-4 rounded-xl border-2 transition-all ${targetFormat === 'pptx' ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-200 hover:border-gray-300 text-gray-600'}`}
+                                                    className={`flex flex-col items-center justify-center space-y-1 p-4 rounded-xl border-2 transition-all ${targetFormat === 'pptx' ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-200 hover:border-gray-300 text-gray-600'}`}
                                                 >
-                                                    <i data-lucide="file-output" className="w-5 h-5"></i>
-                                                    <span className="font-medium">PowerPoint</span>
+                                                    <div className="flex items-center space-x-2">
+                                                        <i data-lucide="file-output" className="w-5 h-5"></i>
+                                                        <span className="font-medium">PowerPoint</span>
+                                                    </div>
+                                                    <span className="text-xs opacity-70">(高保真圖片)</span>
                                                 </button>
                                             </div>
                                         </div>
@@ -262,7 +350,7 @@
                                             onClick={startConversion}
                                             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center space-x-2"
                                         >
-                                            <span>開始轉換</span>
+                                            <span>開始真實轉換</span>
                                             <i data-lucide="arrow-right" className="w-5 h-5"></i>
                                         </button>
                                     </div>
@@ -271,14 +359,17 @@
                                 {/* Progress Bar */}
                                 {status === 'converting' && (
                                     <div className="mt-8 text-center">
+                                        <div className="flex justify-center mb-4">
+                                            <i data-lucide="loader-2" className="w-8 h-8 text-indigo-600 animate-spin"></i>
+                                        </div>
                                         <div className="h-4 w-full bg-gray-100 rounded-full overflow-hidden mb-4">
                                             <div 
                                                 className="h-full bg-indigo-500 animate-stripes transition-all duration-300"
                                                 style={{ width: `${progress}%` }}
                                             ></div>
                                         </div>
-                                        <p className="text-indigo-600 font-medium animate-pulse">
-                                            正在處理文件並重組排版... {progress > 100 ? 100 : progress}%
+                                        <p className="text-indigo-600 font-medium">
+                                            {progressText}
                                         </p>
                                     </div>
                                 )}
@@ -292,11 +383,11 @@
                                     <i data-lucide="check-circle" className="w-10 h-10 text-green-600"></i>
                                 </div>
                                 <h2 className="text-2xl font-bold text-gray-800 mb-2">轉換成功！</h2>
-                                <p className="text-gray-500 mb-8">您的文件已準備好下載</p>
+                                <p className="text-gray-500 mb-8">您的 {targetFormat.toUpperCase()} 檔案已生成</p>
 
                                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-8 flex items-center justify-center space-x-3">
                                     <span className="font-mono text-gray-600 text-sm">
-                                        [模擬] {file.name.replace('.pdf', '')}.{targetFormat}.txt
+                                        {file.name.replace('.pdf', '')}_converted.{targetFormat}
                                     </span>
                                 </div>
                                 
@@ -306,7 +397,7 @@
                                         className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"
                                     >
                                         <i data-lucide="download" className="w-5 h-5"></i>
-                                        <span>下載檔案</span>
+                                        <span>下載真實檔案</span>
                                     </button>
                                     
                                     <button 
@@ -326,7 +417,7 @@
                         <div className="flex items-start justify-center space-x-2 text-xs text-gray-400 bg-white/50 p-3 rounded-lg">
                             <i data-lucide="alert-circle" className="w-4 h-4 mt-0.5 flex-shrink-0"></i>
                             <p className="text-left">
-                                系統說明：本介面展示前端互動流程。真實的 PDF 轉 Word/PPT 涉及複雜的 OCR 與版面重建技術，通常需要後端伺服器 (Server-side) 支援。點擊下載將獲得模擬文件。
+                                技術說明：本工具使用瀏覽器端運算。PPT 轉換採用「頁面截圖」技術，可完美保留排版，但內容為圖片不可編輯。Word 轉換則僅能提取純文字。
                             </p>
                         </div>
                     </footer>
