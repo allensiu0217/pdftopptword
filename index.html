@@ -32,7 +32,6 @@
             transform: scale(1.02);
         }
 
-        /* Animation for progress bar stripes */
         @keyframes progress-stripes {
             from { background-position: 1rem 0; }
             to { background-position: 0 0; }
@@ -83,20 +82,28 @@
             };
 
             const validateAndSetFile = (file) => {
-                if (file && file.type === 'application/pdf') {
-                    setFile(file);
-                    setStatus('idle');
-                    setProgress(0);
-                } else {
+                if (!file) return;
+
+                if (file.type !== 'application/pdf') {
                     alert('請上傳 PDF 格式的檔案！');
+                    return;
                 }
+
+                const maxSize = 50 * 1024 * 1024; // 50MB
+                if (file.size > maxSize) {
+                    alert('檔案過大！請上傳小於 50MB 的 PDF 文件。');
+                    return;
+                }
+
+                setFile(file);
+                setStatus('idle');
+                setProgress(0);
             };
 
             const startConversion = () => {
                 setStatus('converting');
                 setProgress(0);
 
-                // Simulation of conversion process
                 const interval = setInterval(() => {
                     setProgress((prev) => {
                         if (prev >= 100) {
@@ -104,7 +111,6 @@
                             setStatus('finished');
                             return 100;
                         }
-                        // Random increment to look natural
                         return prev + Math.floor(Math.random() * 15) + 5; 
                     });
                 }, 400);
@@ -117,23 +123,52 @@
                 if(fileInputRef.current) fileInputRef.current.value = '';
             };
 
-            // Dummy Download Function
+            // FIXED DOWNLOAD FUNCTION
             const handleDownload = () => {
-                const textContent = `這是一個模擬的轉換結果文件。\n\n原始檔名: ${file.name}\n目標格式: ${targetFormat.toUpperCase()}\n\n注意：由於這是一個純前端的展示程式 (Demo)，沒有連接後端 Python/Node.js 伺服器，因此無法執行真實的 PDF OCR 辨識與排版重組。\n\n若要實作真實功能，建議後端使用 PDF2DOCX (Python) 搭配前端 Fetch API。`;
+                alert("【系統提示】由於這是純前端模擬演示，系統將下載「文字說明檔 (.txt)」來模擬結果，以確保您能順利開啟閱讀內容。真實環境中將會下載真正的 Word 或 PPT 檔案。");
+
+                const textContent = `
+================================================================
+                    PDF 轉換結果模擬報告
+================================================================
+
+檔案名稱: ${file.name}
+目標格式: ${targetFormat === 'docx' ? 'Microsoft Word (.docx)' : 'PowerPoint (.pptx)'}
+檔案大小: ${(file.size / 1024 / 1024).toFixed(2)} MB
+轉換時間: ${new Date().toLocaleString()}
+
+----------------------------------------------------------------
+【轉換內容模擬】
+
+這是一個由前端模擬生成的檔案。
+
+在真實的應用程式中，後端伺服器 (Python/Node.js) 會執行以下步驟：
+1. 使用 OCR 技術辨識 PDF 中的文字與圖片。
+2. 重建排版結構 (Layout Analysis)。
+3. 將內容寫入真實的 .docx 或 .pptx 二進位檔案格式。
+
+由於目前此網頁僅在瀏覽器端運行 (Client-side only)，
+因此無法生成真實的 Office 格式檔案，特此提供此說明文件。
+
+感謝您的試用！
+================================================================
+`;
                 
                 const blob = new Blob([textContent], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                // Set fake extension for UX demonstration
-                a.download = `converted_${file.name.split('.')[0]}.${targetFormat}`; 
+                
+                // Change extension to .txt to ensure it opens correctly
+                const safeName = file.name.split('.')[0];
+                a.download = `[模擬轉換結果]_${safeName}_${targetFormat}.txt`; 
+                
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
             };
 
-            // Render Icons
             useEffect(() => {
                 lucide.createIcons();
             }, [status, file, isDragging]);
@@ -177,7 +212,7 @@
                                 <h3 className="text-xl font-semibold text-gray-800 mb-2">
                                     {isDragging ? '放開以開始上傳' : '點擊或拖放 PDF 至此'}
                                 </h3>
-                                <p className="text-sm text-gray-400">支援最大 20MB 的 PDF 文件</p>
+                                <p className="text-sm text-gray-400">支援最大 50MB 的 PDF 文件</p>
                             </div>
                         )}
 
@@ -260,7 +295,9 @@
                                 <p className="text-gray-500 mb-8">您的文件已準備好下載</p>
 
                                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-8 flex items-center justify-center space-x-3">
-                                    <span className="font-mono text-gray-600 text-sm">{file.name.replace('.pdf', '')}.{targetFormat}</span>
+                                    <span className="font-mono text-gray-600 text-sm">
+                                        [模擬] {file.name.replace('.pdf', '')}.{targetFormat}.txt
+                                    </span>
                                 </div>
                                 
                                 <div className="space-y-3">
