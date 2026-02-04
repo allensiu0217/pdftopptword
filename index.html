@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>專業 PDF 轉檔工具</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+        
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        .drop-zone {
+            transition: all 0.3s ease;
+            background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='16' ry='16' stroke='%234F46E5FF' stroke-width='2' stroke-dasharray='12%2c 12' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e");
+        }
+        
+        .drop-zone.active {
+            background-color: #eef2ff;
+            transform: scale(1.02);
+        }
+
+        /* Animation for progress bar stripes */
+        @keyframes progress-stripes {
+            from { background-position: 1rem 0; }
+            to { background-position: 0 0; }
+        }
+        .animate-stripes {
+            background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+            background-size: 1rem 1rem;
+            animation: progress-stripes 1s linear infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        const { FileText, Upload, CheckCircle, FileOutput, X, RefreshCw, FileType, ArrowRight, Download, AlertCircle } = lucide;
+
+        const App = () => {
+            const [file, setFile] = useState(null);
+            const [isDragging, setIsDragging] = useState(false);
+            const [targetFormat, setTargetFormat] = useState('docx'); // docx or pptx
+            const [status, setStatus] = useState('idle'); // idle, converting, finished, error
+            const [progress, setProgress] = useState(0);
+            const fileInputRef = useRef(null);
+
+            // Handle Drag Events
+            const onDragOver = (e) => {
+                e.preventDefault();
+                setIsDragging(true);
+            };
+
+            const onDragLeave = (e) => {
+                e.preventDefault();
+                setIsDragging(false);
+            };
+
+            const onDrop = (e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                const droppedFile = e.dataTransfer.files[0];
+                validateAndSetFile(droppedFile);
+            };
+
+            const onFileSelect = (e) => {
+                const selectedFile = e.target.files[0];
+                validateAndSetFile(selectedFile);
+            };
+
+            const validateAndSetFile = (file) => {
+                if (file && file.type === 'application/pdf') {
+                    setFile(file);
+                    setStatus('idle');
+                    setProgress(0);
+                } else {
+                    alert('請上傳 PDF 格式的檔案！');
+                }
+            };
+
+            const startConversion = () => {
+                setStatus('converting');
+                setProgress(0);
+
+                // Simulation of conversion process
+                const interval = setInterval(() => {
+                    setProgress((prev) => {
+                        if (prev >= 100) {
+                            clearInterval(interval);
+                            setStatus('finished');
+                            return 100;
+                        }
+                        // Random increment to look natural
+                        return prev + Math.floor(Math.random() * 15) + 5; 
+                    });
+                }, 400);
+            };
+
+            const reset = () => {
+                setFile(null);
+                setStatus('idle');
+                setProgress(0);
+                if(fileInputRef.current) fileInputRef.current.value = '';
+            };
+
+            // Dummy Download Function
+            const handleDownload = () => {
+                const textContent = `這是一個模擬的轉換結果文件。\n\n原始檔名: ${file.name}\n目標格式: ${targetFormat.toUpperCase()}\n\n注意：由於這是一個純前端的展示程式 (Demo)，沒有連接後端 Python/Node.js 伺服器，因此無法執行真實的 PDF OCR 辨識與排版重組。\n\n若要實作真實功能，建議後端使用 PDF2DOCX (Python) 搭配前端 Fetch API。`;
+                
+                const blob = new Blob([textContent], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                // Set fake extension for UX demonstration
+                a.download = `converted_${file.name.split('.')[0]}.${targetFormat}`; 
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            };
+
+            // Render Icons
+            useEffect(() => {
+                lucide.createIcons();
+            }, [status, file, isDragging]);
+
+            return (
+                <div className="min-h-screen flex flex-col items-center justify-center p-4">
+                    
+                    {/* Header */}
+                    <header className="mb-10 text-center">
+                        <div className="flex items-center justify-center mb-4">
+                            <div className="bg-indigo-600 p-3 rounded-xl shadow-lg">
+                                <i data-lucide="file-type" className="text-white w-8 h-8"></i>
+                            </div>
+                        </div>
+                        <h1 className="text-3xl font-bold text-gray-800 mb-2">雲端 PDF 轉檔神器</h1>
+                        <p className="text-gray-500">快速將您的 PDF 文件轉換為可編輯的 Word 或 PowerPoint</p>
+                    </header>
+
+                    {/* Main Card */}
+                    <main className="bg-white w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden transition-all duration-300">
+                        
+                        {/* 1. Upload View */}
+                        {!file && (
+                            <div 
+                                className={`p-10 text-center cursor-pointer min-h-[400px] flex flex-col items-center justify-center ${isDragging ? 'bg-indigo-50' : ''}`}
+                                onDragOver={onDragOver}
+                                onDragLeave={onDragLeave}
+                                onDrop={onDrop}
+                                onClick={() => fileInputRef.current.click()}
+                            >
+                                <input 
+                                    type="file" 
+                                    className="hidden" 
+                                    accept=".pdf" 
+                                    ref={fileInputRef}
+                                    onChange={onFileSelect}
+                                />
+                                <div className={`w-24 h-24 mb-6 rounded-full flex items-center justify-center transition-all duration-300 ${isDragging ? 'bg-indigo-200 scale-110' : 'bg-indigo-50'}`}>
+                                    <i data-lucide="upload" className={`w-10 h-10 ${isDragging ? 'text-indigo-700' : 'text-indigo-500'}`}></i>
+                                </div>
+                                <h3 className="text-xl font-semibold text-gray-800 mb-2">
+                                    {isDragging ? '放開以開始上傳' : '點擊或拖放 PDF 至此'}
+                                </h3>
+                                <p className="text-sm text-gray-400">支援最大 20MB 的 PDF 文件</p>
+                            </div>
+                        )}
+
+                        {/* 2. File Selected / Converting View */}
+                        {file && status !== 'finished' && (
+                            <div className="p-8">
+                                {/* File Info */}
+                                <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl mb-8 border border-gray-100">
+                                    <div className="flex items-center space-x-4">
+                                        <div className="bg-red-100 p-3 rounded-lg text-red-600">
+                                            <i data-lucide="file-text" className="w-6 h-6"></i>
+                                        </div>
+                                        <div className="text-left">
+                                            <p className="font-semibold text-gray-700 truncate max-w-[200px]">{file.name}</p>
+                                            <p className="text-xs text-gray-400">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={reset} className="p-2 hover:bg-gray-200 rounded-full text-gray-400 transition">
+                                        <i data-lucide="x" className="w-5 h-5"></i>
+                                    </button>
+                                </div>
+
+                                {/* Options */}
+                                {status === 'idle' && (
+                                    <div className="space-y-6">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-600 mb-3">選擇輸出格式</label>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <button 
+                                                    onClick={() => setTargetFormat('docx')}
+                                                    className={`flex items-center justify-center space-x-2 p-4 rounded-xl border-2 transition-all ${targetFormat === 'docx' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-gray-300 text-gray-600'}`}
+                                                >
+                                                    <i data-lucide="file-text" className="w-5 h-5"></i>
+                                                    <span className="font-medium">Word (.docx)</span>
+                                                </button>
+                                                <button 
+                                                    onClick={() => setTargetFormat('pptx')}
+                                                    className={`flex items-center justify-center space-x-2 p-4 rounded-xl border-2 transition-all ${targetFormat === 'pptx' ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-200 hover:border-gray-300 text-gray-600'}`}
+                                                >
+                                                    <i data-lucide="file-output" className="w-5 h-5"></i>
+                                                    <span className="font-medium">PowerPoint</span>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <button 
+                                            onClick={startConversion}
+                                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center space-x-2"
+                                        >
+                                            <span>開始轉換</span>
+                                            <i data-lucide="arrow-right" className="w-5 h-5"></i>
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Progress Bar */}
+                                {status === 'converting' && (
+                                    <div className="mt-8 text-center">
+                                        <div className="h-4 w-full bg-gray-100 rounded-full overflow-hidden mb-4">
+                                            <div 
+                                                className="h-full bg-indigo-500 animate-stripes transition-all duration-300"
+                                                style={{ width: `${progress}%` }}
+                                            ></div>
+                                        </div>
+                                        <p className="text-indigo-600 font-medium animate-pulse">
+                                            正在處理文件並重組排版... {progress > 100 ? 100 : progress}%
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* 3. Finished View */}
+                        {status === 'finished' && (
+                            <div className="p-10 text-center">
+                                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                                    <i data-lucide="check-circle" className="w-10 h-10 text-green-600"></i>
+                                </div>
+                                <h2 className="text-2xl font-bold text-gray-800 mb-2">轉換成功！</h2>
+                                <p className="text-gray-500 mb-8">您的文件已準備好下載</p>
+
+                                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-8 flex items-center justify-center space-x-3">
+                                    <span className="font-mono text-gray-600 text-sm">{file.name.replace('.pdf', '')}.{targetFormat}</span>
+                                </div>
+                                
+                                <div className="space-y-3">
+                                    <button 
+                                        onClick={handleDownload}
+                                        className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2"
+                                    >
+                                        <i data-lucide="download" className="w-5 h-5"></i>
+                                        <span>下載檔案</span>
+                                    </button>
+                                    
+                                    <button 
+                                        onClick={reset}
+                                        className="w-full bg-white hover:bg-gray-50 text-gray-600 font-medium py-3 rounded-xl border border-gray-200 transition-all flex items-center justify-center space-x-2"
+                                    >
+                                        <i data-lucide="refresh-cw" className="w-4 h-4"></i>
+                                        <span>轉換其他文件</span>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    {/* Footer / Disclaimer */}
+                    <footer className="mt-8 text-center max-w-md">
+                        <div className="flex items-start justify-center space-x-2 text-xs text-gray-400 bg-white/50 p-3 rounded-lg">
+                            <i data-lucide="alert-circle" className="w-4 h-4 mt-0.5 flex-shrink-0"></i>
+                            <p className="text-left">
+                                系統說明：本介面展示前端互動流程。真實的 PDF 轉 Word/PPT 涉及複雜的 OCR 與版面重建技術，通常需要後端伺服器 (Server-side) 支援。點擊下載將獲得模擬文件。
+                            </p>
+                        </div>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
